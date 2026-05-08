@@ -10,7 +10,7 @@ import useAuth from "@/hooks/useAuth"
 const tabsConfig = [
   { value: "my-profile", title: "My profile", component: UserInformation },
   { value: "password", title: "Password", component: ChangePassword },
-  { value: "sharepoint", title: "SharePoint", component: SharePointService },
+  { value: "sharepoint", title: "Export folder", component: SharePointService },
   { value: "danger-zone", title: "Danger zone", component: DeleteAccount },
 ]
 

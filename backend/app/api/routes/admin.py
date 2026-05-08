@@ -12,7 +12,7 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 async def read_folder(
     session: SessionDep,
 ) -> AdminSettingsPublic:
-    """ Retrieve the SharePoint folder path
+    """ Retrieve the export folder path
         configured by the admin.
     """
     res = crud.get_admin_settings(session=session, setting="storage_folder")
@@ -27,7 +27,7 @@ async def update_folder(
     current_user: CurrentUser,
     folder: str,
 ) -> AdminSettingsPublic:
-    """ Update the SharePoint folder path
+    """ Update the export folder path
         configured by the admin.
     """
     if not current_user.is_superuser:

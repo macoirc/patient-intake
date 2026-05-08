@@ -1,7 +1,7 @@
 import { useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
 import { Suspense } from "react"
-
+import AddTemplate from "@/components/Templates/AddTemplate"
 import { TemplatesService } from "@/client"
 import { DataTable } from "@/components/Common/DataTable"
 import { columns } from "@/components/Templates/columns"
@@ -53,6 +53,7 @@ function Templates() {
             Manage your PDF templates
           </p>
         </div>
+        <AddTemplate />
       </div>
       <Suspense fallback={<div>Loading...</div>}>
         <TemplatesTableContent />

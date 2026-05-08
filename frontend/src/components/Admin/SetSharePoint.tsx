@@ -27,7 +27,7 @@ function SetSharePoint() {
       AdminService.updateFolder({ folder: folderName }),
     onSuccess: (data) => {
       console.log("Successfully updated folder:", data)
-      alert("SharePoint folder updated successfully!")
+      alert("Export folder updated successfully!")
     },
     onError: (err) => {
       console.error("Could not update the folder name.", err)
@@ -55,7 +55,7 @@ function SetSharePoint() {
   return (
     <div className="max-w-md">
       <p className="text-muted-foreground">
-        Configure your SharePoint location
+        Configure your export location
       </p>
       <form>
         <div className="grid gap-4 py-4">
@@ -66,7 +66,8 @@ function SetSharePoint() {
             </span>
           </div>
           <div className="bg-blue-50 p-3 rounded text-sm text-blue-800">
-            <strong>Notice:</strong> Ensure you have synced the folder you want
+            <strong>Notice:</strong> If you want to select a SharePoint Library
+            for users to export to, please ensure you have synced the folder
             to your Windows Explorer using the instructions provided by
             Microsoft&nbsp;
             <a

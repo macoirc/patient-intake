@@ -18,7 +18,7 @@ class AcroFormField:
     field_type: str = "text"  # text, checkbox, radio, signature
     font_size: int = 10  # Font size for text fields
     multiline: bool = False  # For text fields that need multiple lines
-    auto_map_key: str = ""  # Maps to PatientData attribute (e.g. "patient_id", "facility_nh")
+    auto_map_key: str = ""  # Maps to PatientData attribute (e.g. "patient_id", "facility_1")
     force_on_state: str = ""  # Force a specific checkbox on-state (e.g. "/On", "/Yes")
 
     @staticmethod

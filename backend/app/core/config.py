@@ -94,6 +94,7 @@ class Settings(BaseSettings):
     EMAIL_TEST_USER: EmailStr = "test@example.com"
     FIRST_SUPERUSER: EmailStr
     FIRST_SUPERUSER_PASSWORD: str
+    FIRST_SUPERUSER_FULL_NAME: str
     PDF_STORAGE_DIR: str = "/app/pdf_storage"
     TEMPLATE_STORAGE_DIR: str = "/app/backend/app/pdf_engine/source_pdfs"
 

@@ -6,7 +6,7 @@ export const patientInfoSchema = z.object({
     .min(1, "Patient ID is required")
     .regex(/^\d+$/, "Patient ID must be numeric"),
   patient_name: z.string().min(1, "Patient name is required"),
-  facility: z.enum(["new_horizons", "harbor_springs"]),
+  facility: z.enum(["facility_1", "facility_2"]),
   admission_date: z.string().min(1, "Admission date is required"),
   counselor_name: z.string().min(1, "Counselor name is required"),
   template_ids: z.array(z.string()).min(1, "Select at least one form"),

@@ -212,6 +212,43 @@ def delete_template(session: SessionDep, current_user: CurrentUser, id: uuid.UUI
     return None
 
 
+def _fields_overlap(f1: dict, f2: dict) -> bool:
+    """Check if two field dicts overlap significantly based on their bounding boxes."""
+    if f1.get("page") != f2.get("page"):
+        return False
+
+    # Bounding box for f1
+    x1_1, y1_1, w1, h1 = f1.get("x", 0), f1.get("y", 0), f1.get("width", 0), f1.get("height", 0)
+    x2_1, y2_1 = x1_1 + w1, y1_1 + h1
+
+    # Bounding box for f2
+    x1_2, y1_2, w2, h2 = f2.get("x", 0), f2.get("y", 0), f2.get("width", 0), f2.get("height", 0)
+    x2_2, y2_2 = x1_2 + w2, y1_2 + h2
+
+    # Calculate intersection coordinates
+    x_left = max(x1_1, x1_2)
+    y_top = max(y1_1, y1_2)
+    x_right = min(x2_1, x2_2)
+    y_bottom = min(y2_1, y2_2)
+
+    if x_right < x_left or y_bottom < y_top:
+        return False  # No overlap
+
+    # Calculate overlap area
+    overlap_area = (x_right - x_left) * (y_bottom - y_top)
+
+    # Calculate area of the smaller field
+    area1 = w1 * h1
+    area2 = w2 * h2
+    smaller_area = min(area1, area2)
+
+    if smaller_area == 0:
+        return overlap_area > 0
+
+    # Consider it an overlap if the overlap area is > 50% of the smaller field's area
+    return (overlap_area / smaller_area) > 0.5
+
+
 def _auto_configure_template(session, db_template) -> None:
     """Automatically analyze and configure an uploaded PDF template.
 
@@ -228,40 +265,47 @@ def _auto_configure_template(session, db_template) -> None:
         return
     logging.debug(f"Template file found at: {file_path}")
 
-    # Extract fields
-    logging.debug("Attempting to extract AcroForm fields.")
-    fields = _extract_acroform_fields(file_path)
+    # Step 1: Attempting to extract AcroForm fields.
+    acroform_fields = _extract_acroform_fields(file_path)
+    logging.info(f"Extracted {len(acroform_fields)} AcroForm fields from '{db_template.file_name}'.")
 
-    # Fallback to visual detection
-    if not fields:
-        logging.info(f"No AcroForm fields found in '{db_template.file_name}', running visual analysis...")
-        logging.debug("Falling back to visual field detection.")
-        try:
-            from app.pdf_engine.utils.pdf_analyzer import PDFAnalyzer
-            analyzer = PDFAnalyzer(file_path)
-            result = analyzer.analyze()
-            fields = [
-                {
-                    "field_id": f.suggested_id,
-                    "acroform_name": f.suggested_id,
-                    "field_type": f.field_type,
-                    "page": f.page,
-                    "x": round(f.x, 2),
-                    "y": round(f.y, 2),
-                    "width": round(f.width, 2),
-                    "height": round(f.height, 2),
-                    "auto_map_key": _suggest_auto_map_key(f.suggested_id, f.field_type),
-                    "label": f.label or f.nearby_text,
-                }
-                for f in result.detected_fields
-            ]
-            logging.debug(f"Visual analysis found {len(fields)} potential fields.")
-        except Exception as e:
-            logging.warning(f"Visual analysis failed with error: {e}")
-            fields = []
-    else:
-        logging.info(f"Extracted {len(fields)} AcroForm fields from '{db_template.file_name}'")
-        logging.debug(f"Successfully extracted {len(fields)} AcroForm fields.")
+    # Step 2: Always run visual analysis to find fields AcroForms might miss.
+    visual_fields = []
+    try:
+        from app.pdf_engine.utils.pdf_analyzer import PDFAnalyzer
+        analyzer = PDFAnalyzer(file_path)
+        result = analyzer.analyze()
+        visual_fields = [
+            {
+                "field_id": f.suggested_id,
+                "acroform_name": f.suggested_id,
+                "field_type": f.field_type,
+                "page": f.page,
+                "x": round(f.x, 2),
+                "y": round(f.y, 2),
+                "width": round(f.width, 2),
+                "height": round(f.height, 2),
+                "auto_map_key": _suggest_auto_map_key(f.suggested_id, f.field_type),
+                "label": f.label or f.nearby_text,
+            }
+            for f in result.detected_fields
+        ]
+        logging.info(f"Visual analysis found {len(visual_fields)} potential fields.")
+    except Exception as e:
+        logging.warning(f"Visual analysis failed with error: {e}")
+
+    # Step 3: Combine and deduplicate fields, prioritizing AcroForm fields.
+    final_fields = list(acroform_fields)
+    for v_field in visual_fields:
+        is_duplicate = False
+        for final_field in final_fields:
+            if _fields_overlap(v_field, final_field):
+                is_duplicate = True
+                break
+        if not is_duplicate:
+            final_fields.append(v_field)
+    fields = final_fields
+    logging.info(f"Combined and deduplicated to {len(fields)} total fields.")
 
     form_name = db_template.file_name.replace(".pdf", "").replace(".PDF", "")
     template_id = f"uploaded_{db_template.file_id.hex[:12]}"
@@ -447,10 +491,10 @@ def _suggest_auto_map_key(field_name: str, field_type: str) -> str:
         return "counselor_name"
     if "medical director" in lower or "physician" in lower:
         return "medical_director"
-    if field_type == "checkbox" and "new horizon" in lower:
-        return "facility_nh"
-    if field_type == "checkbox" and "harbor" in lower:
-        return "facility_hs"
+    if field_type == "checkbox" and "sample facility 1" in lower:
+        return "facility_1"
+    if field_type == "checkbox" and "sample facility 2" in lower:
+        return "facility_2"
     if "date" in lower and field_type != "checkbox":
         return "today_date"
     return ""
@@ -477,42 +521,57 @@ def analyze_template(
     if not file_path.is_file():
         raise HTTPException(status_code=404, detail="Template file not found on disk")
 
-    # First try to extract existing AcroForm fields
+    # Step 1: Extract existing AcroForm fields
     acroform_fields = _extract_acroform_fields(file_path)
 
-    # If no AcroForm fields found, fall back to visual detection
-    if not acroform_fields:
-        try:
-            from app.pdf_engine.utils.pdf_analyzer import PDFAnalyzer
-            analyzer = PDFAnalyzer(file_path)
-            result = analyzer.analyze()
-            acroform_fields = [
-                {
-                    "field_id": f.suggested_id,
-                    "acroform_name": f.suggested_id,
-                    "field_type": f.field_type,
-                    "page": f.page,
-                    "x": round(f.x, 2),
-                    "y": round(f.y, 2),
-                    "width": round(f.width, 2),
-                    "height": round(f.height, 2),
-                    "auto_map_key": _suggest_auto_map_key(f.suggested_id, f.field_type),
-                    "label": f.label or f.nearby_text,
-                    "confidence": f.confidence,
-                }
-                for f in result.detected_fields
-            ]
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+    # Step 2: Always run visual analysis
+    visual_fields = []
+    try:
+        from app.pdf_engine.utils.pdf_analyzer import PDFAnalyzer
+        analyzer = PDFAnalyzer(file_path)
+        result = analyzer.analyze()
+        visual_fields = [
+            {
+                "field_id": f.suggested_id,
+                "acroform_name": f.suggested_id,
+                "field_type": f.field_type,
+                "page": f.page,
+                "x": round(f.x, 2),
+                "y": round(f.y, 2),
+                "width": round(f.width, 2),
+                "height": round(f.height, 2),
+                "auto_map_key": _suggest_auto_map_key(f.suggested_id, f.field_type),
+                "label": f.label or f.nearby_text,
+                "confidence": f.confidence,
+            }
+            for f in result.detected_fields
+        ]
+    except Exception as e:
+        # If visual analysis fails, we can still return the AcroForm fields
+        logging.warning(f"Visual analysis failed during analyze endpoint: {e}")
 
+    # Step 3: Combine and deduplicate
+    final_fields = list(acroform_fields)
+    for v_field in visual_fields:
+        is_duplicate = False
+        for final_field in final_fields:
+            if _fields_overlap(v_field, final_field):
+                is_duplicate = True
+                break
+        if not is_duplicate:
+            final_fields.append(v_field)
+
+    # Sort fields for consistent output
+    final_fields.sort(key=lambda f: (f.get("page", 0), f.get("y", 0), f.get("x", 0)))
+    
     # Available auto_map_keys the frontend can offer
     auto_map_keys = [
         {"key": "patient_id", "label": "Patient ID"},
         {"key": "patient_name", "label": "Patient Name"},
         {"key": "admission_date", "label": "Admission Date"},
         {"key": "today_date", "label": "Today's Date"},
-        {"key": "facility_nh", "label": "Facility: New Horizons (checkbox)"},
-        {"key": "facility_hs", "label": "Facility: Harbor Springs (checkbox)"},
+        {"key": "facility_1", "label": "Facility: Sample Facility 1 (checkbox)"},
+        {"key": "facility_2", "label": "Facility: Sample Facility 2 (checkbox)"},
         {"key": "date_of_birth", "label": "Date of Birth"},
         {"key": "counselor_name", "label": "Counselor Name"},
         {"key": "medical_director", "label": "Medical Director"},
@@ -521,7 +580,7 @@ def analyze_template(
     return {
         "template_id": str(template.file_id),
         "file_name": template.file_name,
-        "fields": acroform_fields,
+        "fields": final_fields,
         "auto_map_keys": auto_map_keys,
     }
 

@@ -45,7 +45,7 @@ export function PatientInfoForm({
     defaultValues: {
       patient_id_number: initialPatientId,
       patient_name: "",
-      facility: "new_horizons",
+      facility: "facility_1",
       admission_date: today,
       counselor_name: user?.full_name || "",
       template_ids: [],
@@ -105,7 +105,7 @@ export function PatientInfoForm({
           render={({ field }) => (
             <FormItem>
               <FormLabel>Facility</FormLabel>
-              <Select onValueChange={field.onChange} defaultValue={field.value}>
+              <Select onValueChange={field.onChange} value={field.value}>
                 <FormControl>
                   <SelectTrigger>
                     <SelectValue placeholder="Select facility" />

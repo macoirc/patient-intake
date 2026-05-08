@@ -264,10 +264,10 @@ class AcroFormFiller:
             return p.admission_date
         if key == "today_date":
             return date.today().strftime("%m/%d/%Y")
-        if key == "facility_nh":
-            return p.facility == "new_horizons"
-        if key == "facility_hs":
-            return p.facility == "harbor_springs"
+        if key == "facility_1":
+            return p.facility == "facility_1"
+        if key == "facility_2":
+            return p.facility == "facility_2"
         if key == "date_of_birth":
             return p.date_of_birth
         if key == "counselor_name":

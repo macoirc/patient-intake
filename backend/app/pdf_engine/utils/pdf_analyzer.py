@@ -65,7 +65,8 @@ class AnalysisResult:
 def slugify(text: str) -> str:
     """Convert text to a valid field ID slug."""
     # Remove special characters, convert spaces to underscores
-    text = text.lower().strip()
+    # Normalize curly apostrophes
+    text = text.lower().strip().replace("’", "'").replace("‘", "'")
     text = re.sub(r"[^\w\s-]", "", text)
     text = re.sub(r"[\s-]+", "_", text)
     return text[:50]  # Limit length
@@ -127,9 +128,11 @@ class PDFAnalyzer:
                         y_tolerance=3,
                     )
 
-                    # Extract lines/rectangles for underlines and checkboxes
-                    lines = page.lines or []
-                    rects = page.rects or []
+                    # Extract geometric objects from the page
+                    lines = page.objects.get("line", [])
+                    curves = page.objects.get("curve", [])
+                    rects = page.objects.get("rect", [])
+                    all_line_objects = lines + curves
 
                     # Detect fields from text patterns
                     text_fields = self._detect_text_fields(
@@ -139,7 +142,7 @@ class PDFAnalyzer:
 
                     # Detect underlines (potential text input fields)
                     underline_fields = self._detect_underlines(
-                        lines, words, page_num, page_height
+                        all_line_objects, words, page_num, page_height
                     )
                     result.detected_fields.extend(underline_fields)
 
@@ -151,9 +154,21 @@ class PDFAnalyzer:
 
                     # Detect signature lines
                     signature_fields = self._detect_signatures(
-                        lines, words, page_num, page_height
+                        all_line_objects, rects, words, page_num, page_height
                     )
                     result.detected_fields.extend(signature_fields)
+
+                    # Detect date boxes
+                    date_box_fields = self._detect_date_boxes(
+                        rects, words, page_num, page_height
+                    )
+                    result.detected_fields.extend(date_box_fields)
+
+                    # Aggressively detect signatures from keywords as a fallback
+                    keyword_sig_fields = self._detect_signatures_from_keywords(
+                        words, page_num, page_height, page_width
+                    )
+                    result.detected_fields.extend(keyword_sig_fields)
 
         except Exception as e:
             result.errors.append(f"Error analyzing PDF: {str(e)}")
@@ -290,51 +305,293 @@ class PDFAnalyzer:
         return fields
 
     def _detect_signatures(
-        self, lines: list, words: list, page_num: int, page_height: float
+        self, lines: list, rects: list, words: list, page_num: int, page_height: float
     ) -> list[DetectedField]:
-        """Detect long horizontal lines near 'signature' text."""
+        """Detect long horizontal lines or boxes near 'signature' text."""
         fields = []
         signature_keywords = ["signature", "sign here", "signed", "witness"]
 
         # Find all words containing signature keywords
         signature_locations = []
         for word in words:
-            if any(kw in word["text"].lower() for kw in signature_keywords):
+            # Normalize text and use regex for whole-word matching
+            clean_text = word["text"].lower().replace("’", "'")
+            if any(re.search(r"\b" + re.escape(kw) + r"\b", clean_text) for kw in signature_keywords):
                 signature_locations.append(word)
 
-        # Look for long lines near signature text
+        if not signature_locations:
+            return []
+
+        # Combine graphical lines and text-based underlines (e.g., "____")
+        all_lines = []
         for line in lines:
             if abs(line.get("top", 0) - line.get("bottom", 0)) < 2:
-                width = line.get("x1", 0) - line.get("x0", 0)
+                all_lines.append(line)
+        for word in words:
+            if len(word["text"]) > 10 and all(c == "_" for c in word["text"]):
+                all_lines.append({
+                    "x0": word["x0"], "x1": word["x1"], "top": word["top"], "bottom": word["bottom"]
+                })
 
-                # Signature lines are typically longer (> 150 points)
-                if width >= 150:
-                    line_y = line.get("top", 0)
-                    x0 = line.get("x0", 0)
+        # Look for long lines near signature text
+        for line in all_lines:
+            width = line.get("x1", 0) - line.get("x0", 0)
 
-                    # Check if near a signature keyword
-                    for sig_word in signature_locations:
-                        # Within 50 points vertically
-                        if abs(sig_word["top"] - line_y) < 50:
-                            label = sig_word["text"]
-                            suggested_id = slugify(label) + "_signature"
+            # Signature lines are typically longer (> 150 points)
+            if width >= 150:
+                line_y = line.get("top", 0)
+                x0 = line.get("x0", 0)
 
-                            fields.append(
-                                DetectedField(
-                                    suggested_id=suggested_id,
-                                    field_type="signature",
-                                    page=page_num,
-                                    x=x0,
-                                    y=page_height - line_y - 30,
-                                    width=width,
-                                    height=30,
-                                    confidence=0.9,
-                                    nearby_text=f"Signature line near '{label}'",
-                                    label=label,
-                                )
+                # Check if near a signature keyword
+                for sig_word in signature_locations:
+                    # Keyword should be close to the line, usually to the left
+                    is_nearby_left = sig_word["x1"] < x0 + 20  # Keyword ends before or just after line starts
+                    is_vertically_close = abs(sig_word["top"] - line_y) < 40  # Generous vertical tolerance
+                    is_horizontally_close = abs(x0 - sig_word["x1"]) < 150  # Keyword not too far left
+
+                    if is_nearby_left and is_vertically_close and is_horizontally_close:
+                        # Build the label by finding contiguous words to the left of the keyword.
+                        phrase_words = [sig_word]
+                        current_word = sig_word
+                        # Search for words to the left, up to a reasonable limit
+                        for _ in range(10):  # Limit search to 10 words to prevent infinite loops
+                            # Find candidate words to the immediate left of the current phrase
+                            candidates = [ 
+                                w
+                                for w in words
+                                if w["x1"] < current_word["x0"] and abs(w["top"] - current_word["top"]) < 20 # Increased vertical tolerance
+                            ]
+                            if not candidates:
+                                break
+
+                            # Find the closest word
+                            closest_word = min(candidates, key=lambda w: current_word["x0"] - w["x1"])
+
+                            # If it's too far away, stop.
+                            if (current_word["x0"] - closest_word["x1"]) > 25:  # Max space between words
+                                break
+
+                            phrase_words.insert(0, closest_word)
+                            current_word = closest_word
+
+                        label_text = " ".join(w["text"] for w in phrase_words).strip()
+
+                        suggested_id = slugify(label_text) + "_signature"
+
+                        fields.append(
+                            DetectedField(
+                                suggested_id=suggested_id,
+                                field_type="signature",
+                                page=page_num,
+                                x=x0, y=page_height - line_y - 20, width=width, height=40,
+                                confidence=0.9,
+                                nearby_text=f"Signature line near '{label_text}'",
+                                label=label_text,
                             )
-                            break
+                        )
+                        break
 
+        # Look for 'X' markers for signatures (e.g., "Signature X____")
+        for word in words:
+            if word["text"].strip().upper() == "X" and (word["x1"] - word["x0"]) < 25:
+                x_marker = word
+                # Find all words in a region above or to the left of the X
+                region_nearby = [
+                    w for w in words
+                    if (
+                        # Above
+                        (w["bottom"] < x_marker["top"] and abs(x_marker["top"] - w["bottom"]) < 50 and abs(w["x0"] - x_marker["x0"]) < 200) or
+                        # Left
+                        (w["x1"] < x_marker["x0"] and abs(x_marker["x0"] - w["x1"]) < 150 and abs(w["top"] - x_marker["top"]) < 20)
+                    )
+                ]
+
+                if not region_nearby:
+                    continue
+
+                # Check if any of these words are signature keywords
+                if any(
+                    any(re.search(r"\b" + re.escape(kw) + r"\b", w["text"].lower().replace("’", "'")) for kw in signature_keywords)
+                    for w in region_nearby
+                ):
+                    # Group nearby words into lines to find the label
+                    lines_nearby = self._group_words_into_lines(region_nearby)
+                    if not lines_nearby:
+                        continue
+
+                    # Assume the last line before the 'X' is the label
+                    lines_nearby.sort(key=lambda line: line[0]["top"])
+                    label_text = " ".join(w["text"] for w in lines_nearby[-1])
+                    suggested_id = slugify(label_text) + "_signature"
+
+                    # Define field boundaries around the 'X', extending to the right
+                    fields.append(
+                        DetectedField(
+                            suggested_id=suggested_id, field_type="signature", page=page_num,
+                            x=x_marker["x0"], y=page_height - x_marker["bottom"] - 10,
+                            width=(x_marker["x1"] - x_marker["x0"]) + 150, height=40,
+                            confidence=0.8, nearby_text=f"Signature X near '{label_text}'", label=label_text,
+                        )
+                    )
+
+        # Look for signature boxes (rectangles)
+        for rect in rects:
+            width = rect.get("width", rect.get("x1", 0) - rect.get("x0", 0))
+            height = rect.get("height", rect.get("bottom", 0) - rect.get("top", 0))
+
+            # Signature boxes are reasonably large rectangles, but not whole page boxes
+            if width > 100 and 20 < height < 100:
+                x0 = rect.get("x0", 0)
+                top = rect.get("top", 0)
+                bottom = rect.get("bottom", 0)
+
+                # Check if near a signature keyword
+                for sig_word in signature_locations:
+                    # Keyword should be close to the box, usually above or to the left
+                    is_above = sig_word["bottom"] < top and abs(top - sig_word["bottom"]) < 30
+                    is_left = sig_word["x1"] < x0 and abs(x0 - sig_word["x1"]) < 10
+
+                    # Check vertical alignment for left-side labels
+                    is_aligned = abs(sig_word["top"] - top) < height
+
+                    if (is_above and abs(sig_word["x0"] - x0) < 50) or (is_left and is_aligned):
+                        label_text = sig_word["text"]
+
+                        # Try to find a more specific label
+                        if is_above:
+                            label_text = self._find_nearby_label(words, x0, top, "above") or label_text
+                        elif is_left:
+                            label_text = self._find_nearby_label(words, x0, top, "left") or label_text
+
+                        suggested_id = slugify(label_text) + "_signature"
+
+                        fields.append(
+                            DetectedField(
+                                suggested_id=suggested_id,
+                                field_type="signature",
+                                page=page_num,
+                                x=x0,
+                                y=page_height - bottom,
+                                width=width,
+                                height=height,
+                                confidence=0.85,
+                                nearby_text=f"Signature box near '{label_text}'",
+                                label=label_text,
+                            )
+                        )
+                        break  # Found a keyword for this rect, move to next rect
+
+        return fields
+
+    def _detect_date_boxes(
+        self, rects: list, words: list, page_num: int, page_height: float
+    ) -> list[DetectedField]:
+        """Detect boxes near 'date' text."""
+        fields = []
+        date_keywords = ["date"]
+
+        # Find all words containing date keywords
+        date_locations = []
+        for word in words:
+            if any(kw in word["text"].lower() for kw in date_keywords):
+                date_locations.append(word)
+
+        if not date_locations:
+            return []
+
+        # Look for date boxes (rectangles)
+        for rect in rects:
+            width = rect.get("width", rect.get("x1", 0) - rect.get("x0", 0))
+            height = rect.get("height", rect.get("bottom", 0) - rect.get("top", 0))
+
+            # Date boxes are smaller than signature boxes
+            if width > 50 and 15 < height < 50:
+                x0 = rect.get("x0", 0)
+                top = rect.get("top", 0)
+                bottom = rect.get("bottom", 0)
+
+                # Check if near a date keyword
+                for date_word in date_locations:
+                    # Keyword should be close to the box, usually above or to the left
+                    is_above = date_word["bottom"] < top and abs(top - date_word["bottom"]) < 30
+                    is_left = date_word["x1"] < x0 and abs(x0 - date_word["x1"]) < 10
+
+                    # Check vertical alignment for left-side labels
+                    is_aligned = abs(date_word["top"] - top) < height
+
+                    if (is_above and abs(date_word["x0"] - x0) < 50) or (is_left and is_aligned):
+                        label_text = date_word["text"]
+
+                        # Try to find a more specific label
+                        if is_above:
+                            label_text = self._find_nearby_label(words, x0, top, "above") or label_text
+                        elif is_left:
+                            label_text = self._find_nearby_label(words, x0, top, "left") or label_text
+
+                        suggested_id = slugify(label_text) + "_date"
+
+                        fields.append(
+                            DetectedField(
+                                suggested_id=suggested_id,
+                                field_type="date",
+                                page=page_num,
+                                x=x0,
+                                y=page_height - bottom,
+                                width=width,
+                                height=height,
+                                confidence=0.85,
+                                nearby_text=f"Date box near '{label_text}'",
+                                label=label_text,
+                            )
+                        )
+                        break  # Found a keyword for this rect, move to next rect
+
+        return fields
+
+    def _detect_signatures_from_keywords(
+        self, words: list, page_num: int, page_height: float, page_width: float
+    ) -> list[DetectedField]:
+        """
+        Aggressively detect signature fields based only on keywords.
+
+        This is a fallback for when no line, box, or 'X' is found.
+        It finds a keyword and places a field to its right.
+        """
+        fields = []
+        signature_keywords = ["signature", "sign here", "signed", "witness"]
+
+        for word in words:
+            clean_text = word["text"].lower().replace("’", "'")
+            if any(re.search(r"\b" + re.escape(kw) + r"\b", clean_text) for kw in signature_keywords):
+
+                # We found a keyword. Let's try to get a slightly better label than just the word.
+                label = self._find_nearby_label(words, word["x0"], word["top"], "left")
+                label_text = f"{label} {word['text']}" if label else word['text']
+
+                # Place a field to the right of the keyword.
+                field_x = word["x1"] + 5
+                field_y_pdf = word["top"]
+
+                field_width = 200  # A standard width for a signature
+                if field_x + field_width > page_width - 20:  # Respect right margin
+                    field_width = page_width - field_x - 20
+
+                field_height = 40  # Standard signature height
+
+                # Convert y from pdfplumber (top-down) to our (bottom-up)
+                field_y = page_height - field_y_pdf - field_height
+
+                suggested_id = slugify(label_text) + "_signature"
+
+                fields.append(
+                    DetectedField(
+                        suggested_id=suggested_id, field_type="signature", page=page_num,
+                        x=field_x, y=field_y, width=field_width, height=field_height,
+                        confidence=0.4,  # Low confidence to be overridden by other methods
+                        nearby_text=f"Keyword-based: '{label_text}'",
+                        label=label_text.strip(),
+                    )
+                )
         return fields
 
     def _group_words_into_lines(self, words: list) -> list[list]:
@@ -375,19 +632,19 @@ class PDFAnalyzer:
 
             if direction == "left":
                 # Look for text to the left and roughly same Y
-                if word_x < x and abs(word_y - y) < 10:
+                if word_x < x and abs(word_y - y) < 20: # Increased vertical tolerance
                     distance = x - word["x1"]
                     if distance < 100:  # Within 100 points
                         candidates.append((distance, word["text"]))
             elif direction == "right":
                 # Look for text to the right and roughly same Y
-                if word_x > x and abs(word_y - y) < 10:
+                if word_x > x and abs(word_y - y) < 20: # Increased vertical tolerance
                     distance = word_x - x
                     if distance < 100:
                         candidates.append((distance, word["text"]))
             elif direction == "above":
                 # Look for text above
-                if word_y < y and abs(word_x - x) < 50:
+                if word_y < y and abs(word_x - x) < 100: # Increased horizontal tolerance
                     distance = y - word["bottom"]
                     if distance < 30:
                         candidates.append((distance, word["text"]))
@@ -401,7 +658,7 @@ class PDFAnalyzer:
 
     def _infer_field_type(self, text: str) -> str:
         """Infer field type from label text."""
-        text = text.lower()
+        text = text.lower().replace("’", "'")
         if "date" in text:
             return "date"
         if "signature" in text:

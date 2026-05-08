@@ -40,7 +40,7 @@ const SharePointService = () => {
       // Success! Save to local browser storage
       await set(ROOT_HANDLE_KEY, handle)
       setRootHandle(handle)
-      alert("SharePoint folder linked successfully!")
+      alert("Export folder linked successfully!")
     } catch (_err) {
       console.error("User cancelled or browser blocked the picker.")
     }
@@ -49,7 +49,7 @@ const SharePointService = () => {
   const handleDisconnect = async () => {
     await del(ROOT_HANDLE_KEY)
     setRootHandle(null)
-    alert("SharePoint folder disconnected successfully!")
+    alert("Export folder disconnected successfully!")
   }
 
   if (loading) return <div>Loading configuration...</div>
@@ -57,7 +57,7 @@ const SharePointService = () => {
   if (!rootHandle || rootHandle.name !== targetName) {
     return (
       <div className="max-w-md">
-        <h2 className="text-lg font-semibold py-4">Link SharePoint</h2>
+        <h2 className="text-lg font-semibold py-4">Link Export Folder</h2>
         <p className="text-muted-foreground">
           Your administrator requires all files to be saved in:
           <span />
@@ -69,7 +69,8 @@ const SharePointService = () => {
         </p>
         <br />
         <div className="bg-blue-50 p-3 rounded text-sm text-blue-600">
-          <strong>Notice:</strong> Ensure you have synced this folder to your
+          <strong>Notice:</strong> If your admin requires a SharePoint Library
+          to export to, please ensure you have synced this folder to your
           Windows Explorer using the instructions provided by Microsoft&nbsp;
           <a
             className="underline"
@@ -103,9 +104,9 @@ const SharePointService = () => {
 
   return (
     <div className="max-w-lg">
-      <h2 className="text-lg font-semibold py-4">Link SharePoint</h2>
+      <h2 className="text-lg font-semibold py-4">Link Export Folder</h2>
       <p className="text-muted-foreground">
-        You have already linked your SharePoint folder. Your current selection
+        You have already linked your export folder. Your current selection
         is:
         <span className="block font-mono font-bold text-[#D4AF37]">
           "{rootHandle.name}"
@@ -135,7 +136,7 @@ const savePatientForm = async (
   const rootHandle = await get<FileSystemDirectoryHandle>(ROOT_HANDLE_KEY)
 
   if (!rootHandle) {
-    throw new Error("No SharePoint folder connected. Please run setup first.")
+    throw new Error("No export folder connected. Please run setup first.")
   }
 
   // 1. Request/Verify Permission (Browser security requires this check)

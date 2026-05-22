@@ -1,0 +1,44 @@
+CREATE TABLE patient_template_status (
+    patient_id UUID NOT NULL,
+    template_id UUID NOT NULL,
+
+    -- Using VARCHAR instead of ENUM for portability
+    status VARCHAR(20) NOT NULL DEFAULT 'NOT_STARTED',
+
+    started_at TIMESTAMP NULL,
+    completed_at TIMESTAMP NULL,
+
+    last_updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    completed_by_user_id UUID NULL,
+
+    CONSTRAINT pk_patient_template_status
+        PRIMARY KEY (patient_id, template_id),
+
+    CONSTRAINT fk_pts_patient
+        FOREIGN KEY (patient_id)
+        REFERENCES patient(id)
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_pts_template
+        FOREIGN KEY (template_id)
+        REFERENCES template(file_id)
+        ON DELETE CASCADE,
+
+
+    CONSTRAINT chk_status_valid
+        CHECK (status IN (
+            'NOT_STARTED',
+            'COMPLETE'
+        ))
+);
+
+-- Helpful indexes
+CREATE INDEX idx_pts_patient
+    ON patient_template_status (patient_id);
+
+CREATE INDEX idx_pts_template
+    ON patient_template_status (template_id);
+
+CREATE INDEX idx_pts_status
+    ON patient_template_status (status);

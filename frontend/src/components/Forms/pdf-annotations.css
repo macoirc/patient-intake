@@ -1,0 +1,97 @@
+.annotationLayer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+  line-height: 1;
+}
+
+.annotationLayer section {
+  position: absolute;
+  text-align: initial;
+  pointer-events: auto;
+}
+
+.annotationLayer .textWidgetAnnotation input,
+.annotationLayer .textWidgetAnnotation textarea,
+.annotationLayer .choiceWidgetAnnotation select {
+  background-color: #fff;
+  border: 1px solid #ccc;
+  box-sizing: border-box;
+  height: 100%;
+  margin: 0;
+  padding: 0 2px;
+  width: 100%;
+  color: #000;
+}
+
+.annotationLayer .textWidgetAnnotation input:focus,
+.annotationLayer .textWidgetAnnotation textarea:focus {
+  background-color: #fff;
+  border-color: rgba(0, 54, 255, 0.45);
+  outline: none;
+}
+
+.annotationLayer .buttonWidgetAnnotation.checkBox input,
+.annotationLayer .buttonWidgetAnnotation.radioButton input {
+  background-color: transparent;
+  border: 1px solid rgba(0, 54, 255, 0.25);
+  box-sizing: border-box;
+  height: 100%;
+  margin: 0;
+  width: 100%;
+  appearance: auto;
+}
+
+/* Ensure form widget sections sit above signature overlays so nearby
+   buttons/checkboxes remain clickable (fixes Medical History page 2). */
+.annotationLayer .buttonWidgetAnnotation,
+.annotationLayer .textWidgetAnnotation,
+.annotationLayer .choiceWidgetAnnotation {
+  z-index: 15;
+}
+
+.signature-field-overlay {
+  position: absolute;
+  border: 2px dashed rgba(37, 99, 235, 0.55);
+  background: rgba(37, 99, 235, 0.04);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  box-sizing: border-box;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+  border-radius: 3px;
+}
+
+.signature-field-overlay:hover {
+  background: rgba(37, 99, 235, 0.1);
+  border-color: rgba(37, 99, 235, 0.8);
+}
+
+.signature-field-overlay.signed {
+  border: 2px solid rgba(22, 163, 74, 0.55);
+  background: rgba(22, 163, 74, 0.04);
+}
+
+.sig-placeholder {
+  font-size: 11px;
+  color: rgba(37, 99, 235, 0.7);
+  text-align: center;
+  padding: 2px 4px;
+  pointer-events: none;
+}
+
+.sig-signed-name {
+  font-family: "Dancing Script", cursive;
+  font-size: clamp(14px, 60%, 28px);
+  color: #1e3a5f;
+  pointer-events: none;
+  text-align: center;
+  line-height: 1;
+}

@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Weekly Report</title>
+    <style>
+        body { font-family: sans-serif; color: #333; }
+        .container { width: 90%; margin: auto; }
+        h1, h2 { color: #1a202c; }
+        h1 { border-bottom: 2px solid #ddd; padding-bottom: 10px; }
+        .card { border: 1px solid #ddd; border-radius: 8px; padding: 20px; margin-bottom: 20px; background-color: #f9f9f9; }
+        .card h3 { margin-top: 0; }
+        .list { list-style: none; padding: 0; }
+        .list-item { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; }
+        .list-item:last-child { border-bottom: none; }
+        .font-mono { font-family: monospace; }
+        .text-muted { color: #777; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Weekly Report - {{ generated_at }}</h1>
+
+        <div class="card">
+            <h3>Average Intake Duration</h3>
+            <p style="font-size: 2em; font-weight: bold;">
+                {{ avg_duration_hours | round(2) }} hours
+            </p>
+            <p class="text-muted">Average time from packet creation to completion.</p>
+        </div>
+
+        <div class="card">
+            <h3>Incomplete Intake Packets ({{ incomplete_patients | length }})</h3>
+            <p class="text-muted">Patients with intake packets that are not yet completed or linked.</p>
+            {% if incomplete_patients %}
+                <ul class="list">
+                {% for patient_id in incomplete_patients %}
+                    <li class="font-mono">{{ patient_id }}</li>
+                {% endfor %}
+                </ul>
+            {% else %}
+                <p>All intake packets are complete.</p>
+            {% endif %}
+        </div>
+
+        <div class="card">
+            <h3>Incomplete Forms Summary</h3>
+            <p class="text-muted">Count of individual forms that are not yet completed across all patients.</p>
+            {% if incomplete_forms %}
+                <ul class="list">
+                {% for form in incomplete_forms %}
+                    <li class="list-item">
+                        <span>{{ form.form_name }}</span>
+                        <strong>{{ form.count }}</strong>
+                    </li>
+                {% endfor %}
+                </ul>
+            {% else %}
+                <p>All forms are complete.</p>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>

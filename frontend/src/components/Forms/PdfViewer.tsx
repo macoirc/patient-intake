@@ -427,11 +427,22 @@ export function PdfViewer({ packet: initialPacket, onClose, onPacketRefresh }: P
           if (state) {
             // Embed signatures before flattening
             await document.fonts.load('700 28px "Dancing Script"')
+            const allFields = form.getFields()
+
             for (const fieldName in state.signatureValues) {
               const name = state.signatureValues[fieldName]
               if (!name) continue
               try {
-                const field = form.getSignature(fieldName)
+                // Find field by name from all fields, which is more robust
+                // than guessing its type with getSignature/getTextField.
+                const field = allFields.find((f) => f.getName() === fieldName)
+                if (!field) {
+                  console.warn(
+                    `Could not find signature field '${fieldName}' in PDF '${doc.filename}'.`,
+                  )
+                  continue
+                }
+
                 const widgets = field.acroField.getWidgets()
                 if (widgets.length === 0) continue
 
@@ -574,6 +585,7 @@ export function PdfViewer({ packet: initialPacket, onClose, onPacketRefresh }: P
                   patientName={packet.patient_name}
                   counselorName={packet.counselor_name}
                   onAnnotationLayerReady={handleAnnotationLayerReady}
+                  onBeforeSignature={saveCurrentState}
                   initialSignatures={currentDocState?.signatureValues || {}}
                   isReadOnly={isReadOnly}
                 />

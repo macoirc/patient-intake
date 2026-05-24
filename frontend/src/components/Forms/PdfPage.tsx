@@ -31,6 +31,7 @@ interface PdfPageProps {
   patientName: string
   counselorName: string
   onAnnotationLayerReady?: (layer: HTMLDivElement) => void
+  onBeforeSignature?: () => void
   initialSignatures?: Record<string, string>
   isReadOnly?: boolean
 }
@@ -42,6 +43,7 @@ export function PdfPage({
   patientName,
   counselorName,
   onAnnotationLayerReady,
+  onBeforeSignature,
   initialSignatures,
   isReadOnly,
 }: PdfPageProps) {
@@ -60,7 +62,7 @@ export function PdfPage({
   function getDefaultName(signerType: SignerType): string {
     if (signerType === "patient") return patientName
     if (signerType === "counselor") return counselorName
-    if (signerType === "medical") return "Trapper John, MD"
+    if (signerType === "medical") return "Arnold Gaskin, MD"
     return ""
   }
 
@@ -91,17 +93,30 @@ export function PdfPage({
         // instead of subtype which can be unreliable across versions.
         const formAnnotations = annotations.filter(
           (a) =>
-            a.rect &&
-            a.fieldType &&
-            a.fieldType !== "Sig" &&
-            (a.fieldType === "Tx" ||
-              a.fieldType === "Btn" ||
-              a.fieldType === "Ch" ||
-              a.subtype === "Widget"),
+            a.rect && a.fieldType && (a.subtype === "Widget" || a.fieldType !== "Link"),
         )
 
-        // Create form inputs directly from annotation data
+        // Separate signature fields from other form fields. The backend creates
+        // signature fields as type /Tx for compatibility, so we must identify
+        // them by name in addition to the /Sig type.
+        const sigAnnotations: AnnotationData[] = []
+        const otherAnnotations: AnnotationData[] = []
         for (const annot of formAnnotations) {
+          const fieldName = annot.fieldName || ""
+          const isSignature =
+            annot.fieldType === "Sig" ||
+            (annot.fieldType === "Tx" &&
+              fieldName.toLowerCase().includes("signature"))
+
+          if (isSignature) {
+            sigAnnotations.push(annot)
+          } else {
+            otherAnnotations.push(annot)
+          }
+        }
+
+        // Create form inputs directly from annotation data
+        for (const annot of otherAnnotations) {
           const fname = annot.fieldName || ""
           if (!annot.rect) continue
           const [x1, y1, x2, y2] =
@@ -176,7 +191,6 @@ export function PdfPage({
         }
 
         // Place overlays for /Sig fields
-        const sigAnnotations = annotations.filter((a) => a.fieldType === "Sig")
         for (const annot of sigAnnotations) {
           if (!annot.rect) continue
           const [x1, y1, x2, y2] = viewport.convertToViewportRectangle(
@@ -220,6 +234,7 @@ export function PdfPage({
 
           if (!isReadOnly) {
             overlay.addEventListener("click", () => {
+              onBeforeSignature?.()
               setPending({
                 overlayEl: overlay,
                 fieldName,

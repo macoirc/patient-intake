@@ -1,10 +1,10 @@
 # Contributing
 
-Thank you for your interest in contributing to the Full Stack FastAPI Template! 🙇
+Thank you for your interest in contributing to the Patient Intake System 🙇
 
 ## Discussions First
 
-For **big changes** (new features, architectural changes, significant refactoring), please start by opening a [GitHub Discussion](https://github.com/fastapi/full-stack-fastapi-template/discussions) first. This allows the community and maintainers to provide feedback on the approach before you invest significant time in implementation.
+For **big changes** (new features, architectural changes, significant refactoring), please start by contacting a member of the team first. This allows the maintainers to provide feedback on the approach before you invest significant time in implementation.
 
 For small, straightforward changes, you can go directly to a Pull Request without starting a discussion first. This includes:
 
@@ -62,4 +62,4 @@ You have amazing tools at hand, use them wisely to help effectively.
 
 ## Questions?
 
-If you have questions about contributing, feel free to open a [GitHub Discussion](https://github.com/fastapi/full-stack-fastapi-template/discussions).
+If you have questions about contributing, feel free to contact a member of the team.
